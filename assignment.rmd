@@ -1,0 +1,120 @@
+---
+title: "Practical Machine Learning. Assignment"
+author: "Alexis Alulema"
+date: "Thursday, February 19, 2015"
+output: html_document
+---
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+###Data Description
+- Class A - exactly according to the specification
+- Class B - throwing the elbows to the front
+- Class C - lifting the dumbbell only halfway
+- Class D - lowering the dumbbell only halfway
+- Class E - throwing the hips to the front
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3SBeCQwgx
+
+## Development
+We start loading libraries and set seed for reproducibility:
+```{r}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+set.seed(4422)
+```
+
+###Data Cleaning
+We load CSV files into datasets, but before we transform empty and #DIV/0! cells into NA cells in order to remove entirely NA columns
+```{r}
+# Replaces empty and '#DIV/0!' for NA
+trainingData <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!", ""))
+testingData <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!", ""))
+
+#Removing empty columns (or only NA columns)
+trainingData <- trainingData[,colSums(is.na(trainingData)) == 0]
+testingData <-testingData[,colSums(is.na(testingData)) == 0]
+```
+
+The first 7 columns are not representative in quantitative data for activities:
+```{r}
+#Removing no relevant columns: X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, num_window
+trainingData <- trainingData[,-c(1:7)]
+testingData <- testingData[,-c(1:7)]
+
+#Identify column CLASSE (last column) to refer class of activity
+colnames(trainingData)
+```
+
+This information shows in the last column how each row was classified, in this case each row belongs to class A, B, C, D or E, and we are going to use the dataset **trainingData**, and we split it 75% for training and 25% for testing (in development). Column **classe** will be used to distribute testing and training partitions.
+
+##Data Partitioning
+
+```{r}
+#Creating training and testing partitions (75% - 25%) on trainingData
+allClasses <- trainingData$classe
+inTrain <- createDataPartition(y=trainingData$classe, p=0.75, list=FALSE)
+training <- trainingData[inTrain,]
+testing <- trainingData[-inTrain,]
+
+#Display some rows to realize the information we are going to use
+head(training)
+
+#Plot the frequency of each class of training
+lbls <- c("Class A:", "Class B:", "Class C:", "Class D:", "Class E:")
+pct <- round(tapply(allClasses, allClasses, length) / length(allClasses) * 100)
+lbls <- paste(lbls, pct)
+lbls <- paste(lbls,"%",sep="")
+pie(tapply(allClasses, allClasses, length) / length(allClasses), labels = lbls, main="Frequency of training class")
+```
+
+From this plot we can see that Class A is the most frequent, meaning the activity is performed exactly according to the specification, and that we could expect that the most of the cases will be CLASS A in **testingData**.
+
+An additional idea we can deduct from the chart is that the distribution of Classes will be almost uniform, with some predilection in Class A. Also, we can say the outcomes are discrete, so the model we have to choose could be some kind of binary tree, so we will try 2 models and compare between each other to select the better model for out testing set.
+
+##Modeling
+
+### MODEL 1. Binary Tree
+```{r}
+model1 <- rpart(classe ~ ., data=training, method="class")
+predict1 <- predict(model1, testing, type = "class")
+# 102: display the classification rate at the node,
+rpart.plot(model1, main="Binary Tree", extra=102, under=TRUE, faclen=0)
+# Test results on testing data set:
+confusionMatrix(predict1, testing$classe)
+```
+### MODEL 2. Random Forest
+```{r}
+model2 <- randomForest(classe ~. , data=training, method="class")
+predict2 <- predict(model2, testing, type = "class")
+# Test results on subTesting data set:
+confusionMatrix(predict2, testing$classe)
+```
+###What do we expect?
+When we compare both confussion matrixes we see that Model 2 has the better performance on prediction, so this model will be used on the final testing dataset.
+We see the **Accuracy = 0.9937**, so the errorwill be 1 - 0.9937 = **0.0063**, what it means is we expect an error of **0.63%** on the prediction model.
+
+About cross-validation, we partitioned our data into 2 groups (75% training, 25% testing) to assure this objective.
+
+## Generation of submission files
+```{r}
+# predict outcome levels on the original Testing data set using Random Forest algorithm
+finalPrediction <- predict(model2, testingData, type="class")
+finalPrediction
+```
+
+```{r}
+# Write files for submission
+filesForSubmission = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+filesForSubmission(finalPrediction)
+```
